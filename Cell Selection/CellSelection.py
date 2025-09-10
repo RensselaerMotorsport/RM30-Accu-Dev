@@ -408,6 +408,18 @@ def GenerateConfigs_Exhaustive(cells, MaxPower=140000, ModuleMaxVoltage=100, Mod
             pbar.update(1)
     return configs
 
+def GenerateCellsForAnalisys(filename="cells.csv"):
+    # Generate configs for cylindrical cells (exhaustive)
+    configs_cyl = GenerateConfigs_Exhaustive(cyl_cells, MaxPower=80000)
+    Configs_to_csv(configs_cyl, "ConfigCyl.csv")
+    print(f"Saved {len(configs_cyl)} cylindrical configs to ConfigCyl.csv")
+
+    # Generate configs for all cells (exhaustive)
+    configs_all = GenerateConfigs_Exhaustive(all_cells, MaxPower=80000)
+    Configs_to_csv(configs_all, "ConfigAll.csv")
+    print(f"Saved {len(configs_all)} all-cell configs to ConfigAll.csv")
+    return none
+
 if __name__ == "__main__":
     if not os.path.exists(CellsFilePath):
         print("cells.csv not found")
