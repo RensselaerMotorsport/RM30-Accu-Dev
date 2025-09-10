@@ -1,7 +1,6 @@
 import numpy as np
 import pandas as pd
 import pickle
-import torch
 import os
 import math
 from tqdm import tqdm
@@ -452,4 +451,5 @@ if __name__ == "__main__":
             # Generate configs for all cells (original)
             configs_all = GenerateConfigs(all_cells)
             Configs_to_csv(configs_all, "ConfigsAll.csv")
+
             print(f"Saved {len(configs_all)} all-cell configs to ConfigsAll.csv")
