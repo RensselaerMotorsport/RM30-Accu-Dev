@@ -11,6 +11,7 @@ import matplotlib.patches as mpatches
 import matplotlib.colors as mcolors
 import os
 import datetime
+import CellSelection as CS
 
 Locations = {
     "Cell": 0,
@@ -129,6 +130,9 @@ def optimization_worker(args):
 
 if __name__ == "__main__":
     Density = 100
+    if not os.path.exists("ConfigsAll.csv") or not os.path.exists("ConfigsCyl.csv"):
+        print("Config files not found, generating...")
+        CS.GenerateCellsForAnalisys()
     if os.path.exists(f"results{str(Density)}.pkl"):
         print(f"Found existing results{str(Density)}.pkl, loading...")
         resultsDict = pickle.load(open(f"results{str(Density)}.pkl", "rb"))

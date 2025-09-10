@@ -411,14 +411,14 @@ def GenerateConfigs_Exhaustive(cells, MaxPower=140000, ModuleMaxVoltage=100, Mod
 def GenerateCellsForAnalisys(filename="cells.csv"):
     # Generate configs for cylindrical cells (exhaustive)
     configs_cyl = GenerateConfigs_Exhaustive(cyl_cells, MaxPower=80000)
-    Configs_to_csv(configs_cyl, "ConfigCyl.csv")
-    print(f"Saved {len(configs_cyl)} cylindrical configs to ConfigCyl.csv")
+    Configs_to_csv(configs_cyl, "ConfigsCyl.csv")
+    print(f"Saved {len(configs_cyl)} cylindrical configs to ConfigsCyl.csv")
 
     # Generate configs for all cells (exhaustive)
     configs_all = GenerateConfigs_Exhaustive(all_cells, MaxPower=80000)
-    Configs_to_csv(configs_all, "ConfigAll.csv")
-    print(f"Saved {len(configs_all)} all-cell configs to ConfigAll.csv")
-    return none
+    Configs_to_csv(configs_all, "ConfigsAll.csv")
+    print(f"Saved {len(configs_all)} all-cell configs to ConfigsAll.csv")
+    return None
 
 if __name__ == "__main__":
     if not os.path.exists(CellsFilePath):
@@ -433,20 +433,20 @@ if __name__ == "__main__":
         if USE_EXHAUSTIVE:
             # Generate configs for cylindrical cells (exhaustive)
             configs_cyl = GenerateConfigs_Exhaustive(cyl_cells, MaxPower=80000)
-            Configs_to_csv(configs_cyl, "ConfigCyl.csv")
-            print(f"Saved {len(configs_cyl)} cylindrical configs to ConfigCyl.csv")
+            Configs_to_csv(configs_cyl, "ConfigsCyl.csv")
+            print(f"Saved {len(configs_cyl)} cylindrical configs to ConfigsCyl.csv")
 
             # Generate configs for all cells (exhaustive)
             configs_all = GenerateConfigs_Exhaustive(all_cells, MaxPower=80000)
-            Configs_to_csv(configs_all, "ConfigAll.csv")
-            print(f"Saved {len(configs_all)} all-cell configs to ConfigAll.csv")
+            Configs_to_csv(configs_all, "ConfigsAll.csv")
+            print(f"Saved {len(configs_all)} all-cell configs to ConfigsAll.csv")
         else:
             # Generate configs for cylindrical cells (original)
             configs_cyl = GenerateConfigs(cyl_cells)
-            Configs_to_csv(configs_cyl, "ConfigCyl.csv")
-            print(f"Saved {len(configs_cyl)} cylindrical configs to ConfigCyl.csv")
+            Configs_to_csv(configs_cyl, "ConfigsCyl.csv")
+            print(f"Saved {len(configs_cyl)} cylindrical configs to ConfigsCyl.csv")
 
             # Generate configs for all cells (original)
             configs_all = GenerateConfigs(all_cells)
-            Configs_to_csv(configs_all, "ConfigAll.csv")
-            print(f"Saved {len(configs_all)} all-cell configs to ConfigAll.csv")
+            Configs_to_csv(configs_all, "ConfigsAll.csv")
+            print(f"Saved {len(configs_all)} all-cell configs to ConfigsAll.csv")
