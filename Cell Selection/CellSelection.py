@@ -409,6 +409,9 @@ def GenerateConfigs_Exhaustive(cells, MaxPower=140000, ModuleMaxVoltage=100, Mod
     return configs
 
 def GenerateCellsForAnalisys(filename="cells.csv"):
+    print("Importing all cells from CSV")
+    all_cells = importCells(CellsFilePath)
+    cyl_cells = CylOnly(all_cells.copy())
     # Generate configs for cylindrical cells (exhaustive)
     configs_cyl = GenerateConfigs_Exhaustive(cyl_cells, MaxPower=80000)
     Configs_to_csv(configs_cyl, "ConfigsCyl.csv")
