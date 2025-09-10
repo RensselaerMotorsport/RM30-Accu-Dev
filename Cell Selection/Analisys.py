@@ -1,17 +1,21 @@
 # To download necessary packages, run:
-# python -m pip install pickle, multiprocessing, tqdm, pandas, numpy, matplotlib, os, datetime
-
-import pickle
-import multiprocessing as mp
-from tqdm import tqdm
-import pandas as pd
-import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib.patches as mpatches
-import matplotlib.colors as mcolors
-import os
-import datetime
-import CellSelection as CS
+# python -m pip install tqdm pandas numpy matplotlib
+try:
+    import pickle
+    import multiprocessing as mp
+    from tqdm import tqdm
+    import pandas as pd
+    import numpy as np
+    import matplotlib.pyplot as plt
+    import matplotlib.patches as mpatches
+    import matplotlib.colors as mcolors
+    import os
+    import datetime
+    import CellSelection as CS
+except ImportError as e:
+    print(f"Error importing module: {e}. Please ensure all required packages are installed.")
+    print("You can run \n'python -m pip install tqdm pandas numpy matplotlib'\n in command prompt to install missing packages.")
+    raise
 
 Locations = {
     "Cell": 0,
