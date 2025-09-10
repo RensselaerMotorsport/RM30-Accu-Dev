@@ -1,3 +1,6 @@
+# To download necessary packages, run:
+# python -m pip install pickle, multiprocessing, tqdm, pandas, numpy, matplotlib, os, datetime
+
 import pickle
 import multiprocessing as mp
 from tqdm import tqdm
@@ -79,7 +82,7 @@ def MakeArgs(configs, OptPWRRng=[60,120], OptPwrCnt = 10, OptEnergRng = [3,8], O
             args.append((configs, i, j))
     return args
 
-def FilterConfigs(configs, minPWR=60, maxPWR=np.inf, minEnerg=3, maxEnerg=np.inf, min_weight=0, max_weight=50):
+def FilterConfigs(configs, MinVolt=0, MaxVolt=510, minPWR=60, maxPWR=np.inf, minEnerg=3, maxEnerg=np.inf, min_weight=0, max_weight=50):
     filtered = []
     required_columns = ["Pack Power (kW)", "Pack Energy (kWh)", "Total Pack Weight (kg)"]
     for col in required_columns:
@@ -98,7 +101,9 @@ def FilterConfigs(configs, minPWR=60, maxPWR=np.inf, minEnerg=3, maxEnerg=np.inf
             config["Pack Energy (kWh)"] >= minEnerg and
             config["Pack Energy (kWh)"] <= maxEnerg and
             config["Total Pack Weight (kg)"] >= min_weight and
-            config["Total Pack Weight (kg)"] <= max_weight
+            config["Total Pack Weight (kg)"] <= max_weight and
+            config["Voltage (V)"] >= MinVolt and
+            config["Voltage (V)"] <= MaxVolt
         ):
             filtered.append(config)
             for key, col in zip(["weight", "energy", "power"], ["Total Pack Weight (kg)", "Pack Energy (kWh)", "Pack Power (kW)"]):
@@ -123,7 +128,7 @@ def optimization_worker(args):
     return DoCellOptimization(*args)
 
 if __name__ == "__main__":
-    Density = 5
+    Density = 100
     if os.path.exists(f"results{str(Density)}.pkl"):
         print(f"Found existing results{str(Density)}.pkl, loading...")
         resultsDict = pickle.load(open(f"results{str(Density)}.pkl", "rb"))
@@ -168,6 +173,3 @@ if __name__ == "__main__":
         results = [resultsCylDict, resultsAllDict]
         pickle.dump(results, open(f"results{str(Density)}.pkl", "wb"))
     print("Done")
-    plot_optimization_scatter_coords(resultsCylDict, show_plot=True, UDT=f"{datetime.datetime.now().strftime('%d_%H_%M_%S')}, Cylindrical, {Density}")
-    plot_optimization_scatter_coords(resultsAllDict, show_plot=True, UDT=f"{datetime.datetime.now().strftime('%d_%H_%M_%S')}, All, {Density}")
-    plot_comprehensive_analysis(resultsCylDict, resultsAllDict, show_plot=True, UDT=f"_{datetime.datetime.now().strftime('%d_%H_%M_%S')}_Density{Density}")
