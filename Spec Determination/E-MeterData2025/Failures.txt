@@ -1,2 +1,2 @@
-Unzipped_TDMS\226_univ-of-waterloo\226_univ-of-waterloo_250620-203002_ ACCEL-EV.tdms
-Unzipped_TDMS\226_univ-of-waterloo\226_univ-of-waterloo_250620-205629_ AUTOX-EV.tdms
+c:\Users\RaczT\Motersport\AccuDev\RM30-Accu-Dev\Spec Determination\E-MeterData2025\Unzipped_TDMS\226_univ-of-waterloo\226_univ-of-waterloo_250620-203002_ ACCEL-EV.tdms
+c:\Users\RaczT\Motersport\AccuDev\RM30-Accu-Dev\Spec Determination\E-MeterData2025\Unzipped_TDMS\226_univ-of-waterloo\226_univ-of-waterloo_250620-205629_ AUTOX-EV.tdms

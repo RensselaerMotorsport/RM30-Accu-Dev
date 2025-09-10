@@ -13,12 +13,13 @@ import time
 # UserInput:
 VerboseDataset = True  # Set to True to print dataset information
 DoGenerateRunFiles = True  # Set to True to generate RunFiles.pickle when none is found
-ForceGenerateRunFiles = False  # Set to True to force generation of RunFiles.pickle even if it exists
+ForceGenerateRunFiles = True  # Set to True to force generation of RunFiles.pickle even if it exists
 VerboseRunFiles = True  # Set to True to print RunFiles processing information
 Debug = False  # Set to True to print detailed RunFiles processing information
 DoGenerateTeams = True  # Set to True to generate Teams.pickle when none is found
 ForceGenerateTeams = True  # Set to True to force generation of Teams.pickle even if it exists
 ReDump = True  # Set to True to re-dump Teams and RunFiles to pickle files
+ReturnAllEnduranceRuns = False  # Set to True to return all endurance runs for each team, False to return only the repaired one
 #######################################################################################################
 WD = os.getcwd()
 print("Working Directory:", WD)
@@ -142,6 +143,16 @@ class EMeterData:
                 self.TeamSignal4 = np.concatenate((self.TeamSignal4, new_data.TeamSignal4))
         self.SampleID = np.linspace(0, len(self.data) - 1, len(self.data))
         self.repaired = True  # Set the repaired flag to True after appending data
+    def to_pandas(self):
+        df = pd.DataFrame({
+            'SampleID': self.SampleID,
+            'Voltage': self.Voltage,
+            'Current': self.Current,
+            'Energy': self.Energy,
+            'GLV': self.GLV,
+            'Power': self.Power(),
+        })
+        return df
     def to_csv(self, filename, Debug=True):
         if Debug:
             print(f"Saving EMeterData to {filename}")
@@ -151,16 +162,7 @@ class EMeterData:
             print(f"Energy length: {len(self.Energy)}")
             print(f"GLV length: {len(self.GLV)}")
             print(f"Power length: {len(self.Power())}")
-        df = pd.DataFrame({
-            'SampleID': self.SampleID,
-            'Voltage': self.Voltage,
-            'Current': self.Current,
-            'Energy': self.Energy,
-            'GLV': self.GLV,
-            'Power': self.Power(),
-        })
-        df.to_csv(filename, index=False)
-    
+        self.to_pandas().to_csv(filename, index=False)
     def MaxVoltage(self):
         return np.max(self.Voltage)
     def MaxCurrent(self):
@@ -327,12 +329,14 @@ def GenerateRunFiles(VerboseRunFiles):
         print("Generating RunFiles from TDMS files in Unzipped_TDMS directory")
     RunFiles = {}
     Failures = []
-    for fldr in os.listdir(r"Unzipped_TDMS"):
+    base_dir = os.path.abspath(os.path.dirname(__file__))
+    tdms_dir = os.path.join(base_dir, "Unzipped_TDMS")
+    for fldr in os.listdir(tdms_dir):
         if VerboseRunFiles:
             print(f"Processing folder: {fldr}")
-        for i in os.listdir(r"Unzipped_TDMS/" + fldr):
+        for i in os.listdir(os.path.join(tdms_dir, fldr)):
             if i.endswith('EV.tdms'):
-                path = os.path.join(r"Unzipped_TDMS", fldr, i)
+                path = os.path.join(tdms_dir, fldr, i)
                 RunName = path[:-5]
                 RunEvent = i.split('_')[-1].split("-")[0][1:]
                 RunID = i.split('_')[-2]
@@ -492,7 +496,7 @@ def DatasetOuptut(Teams, RunFiles):
     print(f"Number of Skidpad runs: {CountSkidpadRuns}")
     print(f"Number of Other runs: {CountOthersRuns}")
     print("********************************************************************************\n")
-def RepairEnduranceRuns(Team):
+def RepairEnduranceRuns(Team, DeleteIntermediate=False):
     if Debug:
         print("Repairing Endurance run for team:", Team.name)
     TeamEnduranceRuns = Team.get_runs_by_event("ENDUR")
@@ -512,12 +516,76 @@ def RepairEnduranceRuns(Team):
     Team.get_run_by_ID(IDs[0]).repaired = True  # Mark the first run as the repaired run
     for ID in IDs[1:]:
         Team.get_runs_by_key({"repaired":True},Singular=True).append_data(Team.get_run_by_ID(ID))
-        Team.remove_run_by_ID(ID)
+        if DeleteIntermediate:
+            Team.remove_run_by_ID(ID)
     Team.get_runs_by_key({"repaired":True},Singular=True).name = f"{Team.name}_ENDUR_Repaired"
     Team.get_runs_by_key({"repaired":True},Singular=True).stints = len(IDs)
 
-
-
+def GenerateRunFilesForTeam(team_number, VerboseRunFiles=True):
+    """
+    Generate RunFiles for a specific team by team number (e.g., '243' for Alberta).
+    Returns a dict of RunFiles and a list of Failures for that team only.
+    """
+    base_dir = os.path.abspath(os.path.dirname(__file__))
+    tdms_dir = os.path.join(base_dir, "Unzipped_TDMS")
+    team_folder = None
+    # Find the folder for the given team number
+    for fldr in os.listdir(tdms_dir):
+        if fldr.startswith(team_number):
+            team_folder = fldr
+            break
+    if not team_folder:
+        raise ValueError(f"No folder found for team number {team_number} in Unzipped_TDMS.")
+    if VerboseRunFiles:
+        print(f"Processing only team folder: {team_folder}")
+    RunFiles = {}
+    Failures = []
+    for i in os.listdir(os.path.join(tdms_dir, team_folder)):
+        if i.endswith('EV.tdms'):
+            path = os.path.join(tdms_dir, team_folder, i)
+            RunName = path[:-5]
+            RunEvent = i.split('_')[-1].split("-")[0][1:]
+            RunID = i.split('_')[-2]
+            if Debug:
+                print(path)
+            TDMSTemp = tdms.TdmsFile.read(path).as_dataframe().to_numpy()
+            if (TDMSTemp.shape[1] != 10 and TDMSTemp.shape[1] != 9):
+                Failures.append(path)
+                if VerboseRunFiles:
+                    print("*************************\n"+f"Failure: {path} - Expected 10 or 9 columns, found {TDMSTemp.shape[1]}"+"\n*************************")
+                continue
+            elif (TDMSTemp.shape[1] == 9 ):
+                RunFiles[RunName] = EMeterData(
+                    name=RunName,
+                    data=TDMSTemp,
+                    Team=TeamNames[team_folder[0:3]],
+                    event=RunEvent,
+                    ID=RunID,
+                    TempData=False,
+                )
+            else:
+                RunFiles[RunName] = EMeterData(
+                    name=RunName,
+                    data=TDMSTemp,
+                    Team=TeamNames[team_folder[0:3]],
+                    event=RunEvent,
+                    ID=RunID
+                )
+            if Debug:
+                print("Name = ", RunName)
+                print("Team = ", team_folder)
+                print("Event = ", RunEvent)
+                print("ID = ", RunID)
+            if RunFiles[RunName].ViolationFlag():
+                Failures.append(path)
+                if VerboseRunFiles:
+                    print("*************************\n"+f"Failure: {path} - Violation flag is set"+"\n*************************")
+                del RunFiles[RunName]
+    if VerboseRunFiles:
+        print(f"RunFiles for team {team_number} generated successfully")
+        print(f"Total RunFiles: {len(RunFiles)}")
+        print(f"Failures found: {len(Failures)}")
+    return RunFiles, Failures
 
 
     
@@ -535,13 +603,15 @@ if __name__ == "__main__":
     Teams = StartupTeams()
     # Reparing Endurance Runs
     for team in Teams.keys():
-        RepairEnduranceRuns(Teams[team])
+        RepairEnduranceRuns(Teams[team], DeleteIntermediate=True if not ReturnAllEnduranceRuns else False)
     # Create Pickle of Just Endurance Runs
     EnduranceRuns = {}
     for team in Teams.values():
         runs = team.get_runs_by_event("ENDUR")
-        if runs:
-            EnduranceRuns[team.name] = runs[0]
+        if runs and ReturnAllEnduranceRuns:
+            EnduranceRuns[team.name] = runs
+        elif runs and not ReturnAllEnduranceRuns:
+            EnduranceRuns[team.name] = runs
         else:
             warn.warn(f"No Endurance runs found for team {team.name}. Skipping.")
     dump(EnduranceRuns, open("Endurance_Runs.pickle", "wb"))

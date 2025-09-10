@@ -4,16 +4,19 @@ import pickle
 import torch
 import os
 import math
+from tqdm import tqdm
 
 ############################################
 CellsFilePath = "cells.csv"
 WallDensity = 2.71e-6 # kg/mm^2
 Verbose = False
+USE_EXHAUSTIVE = True  # Set to False to use the original GenerateConfigs method
 ############################################
 
 def Vprint(*args):
     if Verbose:
-        print(args)
+        print(*args)
+    return None
     # Function implementation goes here
 
 class Cell:
@@ -139,11 +142,16 @@ class Config:
     def to_str(self):
         return f"{self.cell.Model}: {self.SMod}S{self.P}P, {self.MCnt} Modules, {self.PackVoltage}V, {self.CellWeight/1000:.1f}kg Cells + {self.TotalWallWeight/1000:.1f}kg Walls = {self.TotalPackWeight/1000:.1f}kg Total"
 
-def GenerateConfig_CC(cell, MaxPower, TargetVoltage, ModuleMaxVoltage=120, ModuleMaxE=6000000, ModuleMaxCellWeight=8000, PotentialModuleCount=6):
+def GenerateConfig_CC(cell, MaxPower, TargetVoltage, ModuleMaxVoltage=100, ModuleMaxE=6000000, ModuleMaxCellWeight=8000, PotentialModuleCount=6):
     ViableConfigs = []
     current = MaxPower / (TargetVoltage)
     P = np.ceil(current / cell.current_A)
     Vprint(P, cell.model)
+    if not isinstance(cell.voltage_V, (int, float)) or np.isnan(cell.voltage_V):
+        Vprint(cell.model)
+        Vprint(type(cell.voltage_V))
+        Vprint(cell.voltage_V)
+        breakpoint()
     for M in range(1, PotentialModuleCount + 1):
         # Determine the number of cells in series (S) to meet the target voltage
         SMod = int(np.ceil(TargetVoltage / (cell.voltage_V * M)))
@@ -163,7 +171,7 @@ def GenerateConfig_CC(cell, MaxPower, TargetVoltage, ModuleMaxVoltage=120, Modul
         ViableConfigs.append(Config(cell, SMod, P, M, ModW, WallDensity=WallDensity))
     Vprint(type(ViableConfigs))
     return ViableConfigs if len(ViableConfigs) > 0 else None
-def GenerateConfig_CF(cell, MaxPower, TargetVoltage, ModuleMaxVoltage=120, ModuleMaxE=6000000, ModuleMaxCellWeight=8000, PotentialModuleCount=6):
+def GenerateConfig_CF(cell, MaxPower, TargetVoltage, ModuleMaxVoltage=100, ModuleMaxE=6000000, ModuleMaxCellWeight=8000, PotentialModuleCount=6):
     ViableConfigs = []
     current = MaxPower / (TargetVoltage)
     P = np.ceil(current / cell.current_A)
@@ -188,7 +196,7 @@ def GenerateConfig_CF(cell, MaxPower, TargetVoltage, ModuleMaxVoltage=120, Modul
         Vprint("passed")
         ViableConfigs.append(Config(cell, SMod, P, M, ModW, WallDensity=WallDensity))
     return ViableConfigs if len(ViableConfigs) > 0 else None
-def GenerateConfig_FC(cell, MaxPower, TargetVoltage, ModuleMaxVoltage=120, ModuleMaxE=6000000, ModuleMaxCellWeight=8000, PotentialModuleCount=6):
+def GenerateConfig_FC(cell, MaxPower, TargetVoltage, ModuleMaxVoltage=100, ModuleMaxE=6000000, ModuleMaxCellWeight=8000, PotentialModuleCount=6):
     ViableConfigs = []
     current = MaxPower / (TargetVoltage)
     P = np.floor(current / cell.current_A)
@@ -213,7 +221,7 @@ def GenerateConfig_FC(cell, MaxPower, TargetVoltage, ModuleMaxVoltage=120, Modul
         Vprint("passed")
         ViableConfigs.append(Config(cell, SMod, P, M, ModW, WallDensity=WallDensity))
     return ViableConfigs if len(ViableConfigs) > 0 else None
-def GenerateConfig_FF(cell, MaxPower, TargetVoltage, ModuleMaxVoltage=120, ModuleMaxE=6000000, ModuleMaxCellWeight=8000, PotentialModuleCount=6):
+def GenerateConfig_FF(cell, MaxPower, TargetVoltage, ModuleMaxVoltage=100, ModuleMaxE=6000000, ModuleMaxCellWeight=8000, PotentialModuleCount=6):
     ViableConfigs = []
     current = MaxPower / (TargetVoltage)
     P = np.floor(current / cell.current_A)
@@ -241,59 +249,95 @@ def GenerateConfig_FF(cell, MaxPower, TargetVoltage, ModuleMaxVoltage=120, Modul
         ViableConfigs.append(Config(cell, SMod, P, M, ModW, WallDensity=WallDensity))
     return ViableConfigs if len(ViableConfigs) > 0 else None
 
+def GenerateConfig_Exhaustive(cell, MaxPower, ModuleMaxVoltage=100, ModuleMaxE=6000000, ModuleMaxCellWeight=8000, PotentialModuleCount=8):
+    ViableConfigs = []
+    for M in range(1, PotentialModuleCount + 1):
+            for SMod in range(1, int(ModuleMaxVoltage / cell.voltage_V + 2)):
+                denom = cell.current_A * SMod * cell.voltage_V
+                if denom == 0 or denom != denom:  # denom != denom checks for NaN
+                    continue
+                max_p = MaxPower / denom
+                if max_p != max_p or max_p <= 0:  # skip if max_p is NaN or non-positive
+                    continue
+                for P in range(1, int(max_p + 2)):
+                    ModV = cell.voltage_V * SMod  # Volts
+                    ModE = ModV * P * cell.capacity_mAh * 3.6  # Joules
+                    ModW = cell.weight_g * SMod * P  # Grams
+                    if (ModV > ModuleMaxVoltage or ModE > ModuleMaxE or ModW > ModuleMaxCellWeight):
+                        continue
+                    ViableConfigs.append(Config(cell, SMod, P, M, ModW, WallDensity=WallDensity))
+    return ViableConfigs if len(ViableConfigs) > 0 else None
+
 def importCells(file_path):
     cells = {}
     df = pd.read_csv(file_path)
     for row in df.itertuples(index=False, name=None):
+        try:
+            # Skip rows where capacity cannot be converted to float (likely headers)
+            capacity = float(row[6])  # typical capacity (mAh)
+            current = float(row[7])   # Peak discharge rating max (A)
+            weight = float(row[11])   # weight (g)typical
+            length = float(row[12])   # Length
+            thickness = float(row[13]) # thickness (or diameter)
+            width = float(row[14])    # width (if applicable)
+            voltage = float(row[9])   # nominal voltage
+        except (ValueError, IndexError):
+            # Skip rows with non-numeric data or insufficient columns
+            print(f"{str('#'*100)}\nSkipping row with invalid data: {row}\n{str('#'*100)}")
+            continue
+            
+        # Vprint(f"Importing cell model: {row[3]}")  # Debug print
+        # Vprint(f"Importing cell model: {row[3]}")
         cell = Cell(
             store=row[0],
             link=row[1],
-            brand=row[2],
-            model=row[3],
-            package=row[4],
-            capacity_mAh=row[5],
-            current_A=row[6],
-            weight_g=row[7],
-            length_mm=row[8],
-            thickness_mm=row[9],
-            width_mm=row[10],
-            voltage_V=row[11]
+            brand=row[3],     # brand
+            model=row[4],     # model
+            package=row[5],   # Package
+            capacity_mAh=capacity,
+            current_A=current,
+            weight_g=weight,
+            length_mm=length,
+            thickness_mm=thickness,
+            width_mm=width,
+            voltage_V=voltage
         )
-        cells[row[3]] = cell
-    
+        cells[row[4]] = cell  # Use model as key instead of brand
     return cells
 
-def GenerateConfigs(cells, MaxPowers=[80000], TargetVoltages=[400, 500, 600], PotentialModuleCounts=8):
+def GenerateConfigs(cells, MaxPowers=[70000, 80000, 90000], TargetVoltages=[300, 350, 400, 450, 510], PotentialModuleCounts=8):
     configs = {}
-    for cell in cells.values():
-        for MaxPower in MaxPowers:
-            for TargetVoltage in TargetVoltages:
-                tempconfiglistCC = GenerateConfig_CC(cell, MaxPower, TargetVoltage, PotentialModuleCount=PotentialModuleCounts)
-                Vprint(type(tempconfiglistCC))
-                if tempconfiglistCC is not None and len(tempconfiglistCC) > 1:
-                    for config in tempconfiglistCC:
-                        configs[f"{cell.model}_{MaxPower}kW_{TargetVoltage}V_{config.MCnt}M_CC"] = config
-                elif tempconfiglistCC is not None:
-                    configs[f"{cell.model}_{MaxPower}kW_{TargetVoltage}V_{tempconfiglistCC[0].MCnt}M_CC"] = tempconfiglistCC[0]
-                tempconfiglistCF = GenerateConfig_CF(cell, MaxPower, TargetVoltage, PotentialModuleCount=PotentialModuleCounts)
-                if tempconfiglistCF is not None and len(tempconfiglistCF) > 1:
-                    for config in tempconfiglistCF:
-                        configs[f"{cell.model}_{MaxPower}kW_{TargetVoltage}V_{config.MCnt}M_CF"] = config
-                elif tempconfiglistCF is not None:
-                    configs[f"{cell.model}_{MaxPower}kW_{TargetVoltage}V_{tempconfiglistCF[0].MCnt}M_CF"] = tempconfiglistCF[0]
-                tempconfiglistFC = GenerateConfig_FC(cell, MaxPower, TargetVoltage, PotentialModuleCount=PotentialModuleCounts)
-                if tempconfiglistFC is not None and len(tempconfiglistFC) > 1:
-                    for config in tempconfiglistFC:
-                        configs[f"{cell.model}_{MaxPower}kW_{TargetVoltage}V_{config.MCnt}M_FC"] = config
-                elif tempconfiglistFC is not None:
-                    configs[f"{cell.model}_{MaxPower}kW_{TargetVoltage}V_{tempconfiglistFC[0].MCnt}M_FC"] = tempconfiglistFC[0]
-                tempconfiglistFF = GenerateConfig_FF(cell, MaxPower, TargetVoltage, PotentialModuleCount=PotentialModuleCounts)
-                if tempconfiglistFF is not None and len(tempconfiglistFF) > 1:
-                    for config in tempconfiglistFF:
-                        configs[f"{cell.model}_{MaxPower}kW_{TargetVoltage}V_{config.MCnt}M_FF"] = config
-                elif tempconfiglistFF is not None:
-                    configs[f"{cell.model}_{MaxPower}kW_{TargetVoltage}V_{tempconfiglistFF[0].MCnt}M_FF"] = tempconfiglistFF[0]
-
+    total = len(cells) * len(MaxPowers) * len(TargetVoltages)
+    with tqdm(total=total, desc="Generating configs") as pbar:
+        for cell in cells.values():
+            for MaxPower in MaxPowers:
+                for TargetVoltage in TargetVoltages:
+                    tempconfiglistCC = GenerateConfig_CC(cell, MaxPower, TargetVoltage, PotentialModuleCount=PotentialModuleCounts)
+                    Vprint(type(tempconfiglistCC))
+                    if tempconfiglistCC is not None and len(tempconfiglistCC) > 1:
+                        for config in tempconfiglistCC:
+                            configs[f"{cell.model}_{MaxPower}kW_{TargetVoltage}V_{config.MCnt}M_CC"] = config
+                    elif tempconfiglistCC is not None:
+                        configs[f"{cell.model}_{MaxPower}kW_{TargetVoltage}V_{tempconfiglistCC[0].MCnt}M_CC"] = tempconfiglistCC[0]
+                    tempconfiglistCF = GenerateConfig_CF(cell, MaxPower, TargetVoltage, PotentialModuleCount=PotentialModuleCounts)
+                    if tempconfiglistCF is not None and len(tempconfiglistCF) > 1:
+                        for config in tempconfiglistCF:
+                            configs[f"{cell.model}_{MaxPower}kW_{TargetVoltage}V_{config.MCnt}M_CF"] = config
+                    elif tempconfiglistCF is not None:
+                        configs[f"{cell.model}_{MaxPower}kW_{TargetVoltage}V_{tempconfiglistCF[0].MCnt}M_CF"] = tempconfiglistCF[0]
+                    tempconfiglistFC = GenerateConfig_FC(cell, MaxPower, TargetVoltage, PotentialModuleCount=PotentialModuleCounts)
+                    if tempconfiglistFC is not None and len(tempconfiglistFC) > 1:
+                        for config in tempconfiglistFC:
+                            configs[f"{cell.model}_{MaxPower}kW_{TargetVoltage}V_{config.MCnt}M_FC"] = config
+                    elif tempconfiglistFC is not None:
+                        configs[f"{cell.model}_{MaxPower}kW_{TargetVoltage}V_{tempconfiglistFC[0].MCnt}M_FC"] = tempconfiglistFC[0]
+                    tempconfiglistFF = GenerateConfig_FF(cell, MaxPower, TargetVoltage, PotentialModuleCount=PotentialModuleCounts)
+                    if tempconfiglistFF is not None and len(tempconfiglistFF) > 1:
+                        for config in tempconfiglistFF:
+                            configs[f"{cell.model}_{MaxPower}kW_{TargetVoltage}V_{config.MCnt}M_FF"] = config
+                    elif tempconfiglistFF is not None:
+                        configs[f"{cell.model}_{MaxPower}kW_{TargetVoltage}V_{tempconfiglistFF[0].MCnt}M_FF"] = tempconfiglistFF[0]
+                    pbar.update(1)
     return configs
 
 def Configs_to_csv(configs, filename):
@@ -339,30 +383,58 @@ def Configs_to_csv(configs, filename):
 
     }).to_csv(filename, index=False)
 
+def CylOnly(cells):
+    for i in list(cells.keys()):
+        if cells[i].package != "Cylinder":
+            cells.pop(i)
+    return cells
+
+def GenerateConfigs_Exhaustive(cells, MaxPower=140000, ModuleMaxVoltage=100, ModuleMaxE=6000000, ModuleMaxCellWeight=8000, PotentialModuleCounts=8):
+    configs = {}
+    total = len(cells)
+    with tqdm(total=total, desc="Generating exhaustive configs") as pbar:
+        for cell in cells.values():
+            tempconfigs = GenerateConfig_Exhaustive(
+                cell,
+                MaxPower=MaxPower,
+                ModuleMaxVoltage=ModuleMaxVoltage,
+                ModuleMaxE=ModuleMaxE,
+                ModuleMaxCellWeight=ModuleMaxCellWeight,
+                PotentialModuleCount=PotentialModuleCounts
+            )
+            if tempconfigs is not None:
+                for i, config in enumerate(tempconfigs):
+                    configs[f"{cell.model}_exh_{i}"] = config
+            pbar.update(1)
+    return configs
+
 if __name__ == "__main__":
     if not os.path.exists(CellsFilePath):
         print("cells.csv not found")
-    if not os.path.exists("cells.pickle"):
-        # input("Cells.pickle does not exits.\nContinue with creating it?")
-        print("Importing Cells from CSV")
-        cells = importCells(CellsFilePath)
-        print(f"Imported {len(cells)} cells, Pickling them for future use")
-        pickle.dump(cells, open("cells.pickle", "wb"))
-        print("Cells pickled")
     else:
-        print("Cells.Pickle found, unpacking cell data")
-        cells = pickle.load(open("cells.pickle", "rb"))
-    if not os.path.exists("configs.pickle"):
-        # input("Configs.pickle does not exits.\nContinue with creating it?")
-        configs = GenerateConfigs(cells)
-        pickle.dump(configs, open("configs.pickle", "wb"))
-        print("Configs pickled")
-    else:
-        print("Configs.Pickle found, unpacking config data")
-        configs = pickle.load(open("configs.pickle", "rb"))
-    print(f"Loaded {len(configs)} configs")
-    Configs_to_csv(configs, "configs.csv")
-    Vprint(type(configs))
-    Vprint(configs.keys())
-    Vprint(type(configs[list(configs.keys())[0]]))
-    Vprint(configs[list(configs.keys())[0]])
+        print("Importing all cells from CSV")
+        all_cells = importCells(CellsFilePath)
+        cyl_cells = CylOnly(all_cells.copy())
+
+        print(f"Imported {len(cyl_cells)} cylindrical cells and {len(all_cells)} total cells")
+
+        if USE_EXHAUSTIVE:
+            # Generate configs for cylindrical cells (exhaustive)
+            configs_cyl = GenerateConfigs_Exhaustive(cyl_cells, MaxPower=80000)
+            Configs_to_csv(configs_cyl, "ConfigCyl.csv")
+            print(f"Saved {len(configs_cyl)} cylindrical configs to ConfigCyl.csv")
+
+            # Generate configs for all cells (exhaustive)
+            configs_all = GenerateConfigs_Exhaustive(all_cells, MaxPower=80000)
+            Configs_to_csv(configs_all, "ConfigAll.csv")
+            print(f"Saved {len(configs_all)} all-cell configs to ConfigAll.csv")
+        else:
+            # Generate configs for cylindrical cells (original)
+            configs_cyl = GenerateConfigs(cyl_cells)
+            Configs_to_csv(configs_cyl, "ConfigCyl.csv")
+            print(f"Saved {len(configs_cyl)} cylindrical configs to ConfigCyl.csv")
+
+            # Generate configs for all cells (original)
+            configs_all = GenerateConfigs(all_cells)
+            Configs_to_csv(configs_all, "ConfigAll.csv")
+            print(f"Saved {len(configs_all)} all-cell configs to ConfigAll.csv")

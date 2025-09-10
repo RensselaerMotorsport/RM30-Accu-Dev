@@ -1,190 +1,173 @@
-import numpy as np
-import pandas as pd
 import pickle
-import torch
-import os
-import math
-from CellSelection import Cell, Config
+import multiprocessing as mp
+from tqdm import tqdm
+import pandas as pd
+import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.patches as mpatches
+import matplotlib.colors as mcolors
+import os
+import datetime
 
 Locations = {
-    "Cell" : 0,
-    "Pack_Voltage" : 1,
-    "SMod" : 2,
-    "S" : 3,
-    "Pack_Current" : 4,
-    "P" : 5,
-    "MCnt" : 6,
-    "Pack_Power_kW" : 7,
-    "Pack_Energy_kWh" : 8,
-    "Total_Pack_Weight_kg" : 9,
-    "Cell_Weight_kg" : 10,
-    "Total_Wall_Weight_kg" : 11,
-    "Grav_Energy_Density_Wh_kg" : 12,
-    "Grav_Power_Density_W_kg" : 13,
-    "Pack_Length_mm" : 14,
-    "Pack_Width_mm" : 15,
-    "Pack_Height_mm" : 16,
-    "Total_Wall_Volume_mm" : 17
-
+    "Cell": 0,
+    "Pack Voltage (V)": 1,
+    "SMod": 2,
+    "S": 3,
+    "Pack Current (A)": 4,
+    "P": 5,
+    "MCnt": 6,
+    "Pack Power (kW)": 7,
+    "Pack Energy (kWh)": 8,
+    "Total Pack Weight (kg)": 9,
+    "Cell Weight (kg)": 10,
+    "Total Wall Weight (kg)": 11,
+    "Grav Energy Density (Wh/kg)": 12,
+    "Grav Power Density (W/kg)": 13,
+    "Pack Length (mm)": 14,
+    "Pack Width (mm)": 15,
+    "Pack Height (mm)": 16,
+    "Total Wall Volume (mm³)": 17
 }
 
+def normalize_cell_name(cellname, normalize=True):
+    """Normalize cell names so all GRP variants are treated as one, and all SLPB variants are treated as one"""
+    if not normalize:
+        return cellname
 
+    cell_str = str(cellname).strip().upper()  # Convert to string, strip whitespace, and uppercase for comparison
 
-configs = pd.read_csv("configs.csv")
+    if cell_str.startswith('GRP'):
+        return 'GRP'
+    if cell_str.startswith('SLPB'):
+        return 'SLPB'
+    else:
+        return cell_str
 
-EArray = configs.iloc[:, Locations["Pack_Energy_kWh"]].to_numpy()
-WArray = configs.iloc[:, Locations["Total_Pack_Weight_kg"]].to_numpy()
-PArray = configs.iloc[:, Locations["Pack_Power_kW"]].to_numpy()
-print("EArray:", EArray)
-print("WArray:", WArray)
-print("PArray:", PArray)
-# Map cell names to unique numbers for coloring
-cell_names = configs.iloc[:, Locations["Cell"]].to_numpy()
-unique_cells, cell_indices = np.unique(cell_names, return_inverse=True)
-# cell_indices now maps each config to a unique cell number
+def DoCellOptimization(Configs, OPTPower, OPTEnergy):
+    valid_configs = []
+    for k in Configs:
+        power = float(k["Pack Power (kW)"])
+        energy = float(k["Pack Energy (kWh)"])
+        if power >= OPTPower and energy >= OPTEnergy:
+            valid_configs.append(k)
+    
+    results = [None, None, None]
+    used_cells = [None, None, None]
 
+    for i in range(3):
+        best_Weight=np.inf
+        used_cells_norm = [normalize_cell_name(cell) for cell in used_cells if cell is not None]
+        for config in valid_configs:
+            current_cell = normalize_cell_name(config.iloc[Locations["Cell"]])
+            current_weight = config.iloc[Locations["Total Pack Weight (kg)"]]
+            if (current_cell not in used_cells_norm and
+               best_Weight >= current_weight):
 
-# Prepare MCnt array
-MCntArray = configs.iloc[:, Locations["MCnt"]].to_numpy()
+                best_Weight = current_weight
+                results[i] = config
+        used_cells[i] = results[i].iloc[Locations["Cell"]]
 
-# Create 2x2 subplot figure
-fig, axs = plt.subplots(2, 2, figsize=(14, 12))
+    return [OPTPower, OPTEnergy, {
+        "results": results
+     }]
 
-# Top left: Power vs Weight, color by Energy
-from matplotlib.colors import LogNorm
-from matplotlib import ticker
-# Nonlinear scaling function centered at 80kW (Y) and 5kWh (color)
-def nonlinear_axis_transform(x, center, scale=1.0):
-    return np.sign(x - center) * np.log1p(np.abs(x - center) * scale) + center
-# Transform Y (Power) axis for high resolution near 80kW
-PArray_nonlinear = nonlinear_axis_transform(PArray, center=80, scale=0.15)
-# Transform X (Energy) axis for high resolution near 5kWh
-EArray_nonlinear = nonlinear_axis_transform(EArray, center=5, scale=0.15)
-sc1 = axs[0, 0].scatter(EArray_nonlinear, PArray_nonlinear, c=WArray, cmap='viridis', alpha=0.6)
-fig.colorbar(sc1, ax=axs[0, 0], label='Total Pack Weight (kg)')
-axs[0, 0].set_xlabel('Pack Energy (kWh) [nonlinear scale]')
-axs[0, 0].set_ylabel('Pack Power (kW) [nonlinear scale]')
-axs[0, 0].set_title('Pack Power vs Pack Energy (Color: Pack Weight, Nonlinear Axes)')
-# Draw gridlines at constant intervals in the original (linear) data space, transformed to nonlinear axis
-energy_grid = np.arange(EArray.min(), EArray.max(), 1)
-power_grid = np.arange(PArray.min(), PArray.max(), 10)
-for x in energy_grid:
-    axs[0, 0].axvline(nonlinear_axis_transform(x, center=5, scale=0.15), color='lightgray', linestyle='--', linewidth=0.5, zorder=0)
-for y in power_grid:
-    axs[0, 0].axhline(nonlinear_axis_transform(y, center=80, scale=0.15), color='lightgray', linestyle='--', linewidth=0.5, zorder=0)
-axs[0, 0].grid(False)
-# Set custom ticks for nonlinear axes
-energy_ticks = [EArray.min(), 5, EArray.max()]
-power_ticks = [PArray.min(), 80, PArray.max()]
-axs[0, 0].set_xticks(nonlinear_axis_transform(np.array(energy_ticks), center=5, scale=0.15))
-axs[0, 0].set_xticklabels([f'{et:.1f}' for et in energy_ticks])
-axs[0, 0].set_yticks(nonlinear_axis_transform(np.array(power_ticks), center=80, scale=0.15))
-axs[0, 0].set_yticklabels([f'{pt:.1f}' for pt in power_ticks])
+def MakeArgs(configs, OptPWRRng=[60,120], OptPwrCnt = 10, OptEnergRng = [3,8], OptEnergCnt = 10):
+    args = []
+    for i in np.linspace(OptPWRRng[0], OptPWRRng[1], OptPwrCnt):
+        for j in np.linspace(OptEnergRng[0], OptEnergRng[1], OptEnergCnt):
+            args.append((configs, i, j))
+    return args
 
-# Top right: Energy vs Weight, color by Power
-# Nonlinear X (Pack Weight) axis centered at 30kg, Nonlinear Y (Pack Energy) axis centered at 5, Nonlinear color scale centered at 80kW
-WArray_nonlinear_topright = nonlinear_axis_transform(WArray, center=30, scale=2)
-EArray_nonlinear_topright = nonlinear_axis_transform(EArray, center=5, scale=2)
-PArray_nonlinear_color = nonlinear_axis_transform(PArray, center=80, scale=2)
-# Calculate alpha values for each point: fully opaque at 80kW, 90% transparent at furthest from 80kW
-center_power = 80
-max_transparency = 0.9
-min_transparency = 0.0
-furthest = np.max(np.abs(PArray - center_power))
-# Calculate per-point opacity (make bad values much more transparent)
-norm_dist = (np.abs(PArray - center_power) / furthest) ** 8  # Use higher power for sharper dropoff
-# Clamp values to [0, 1]
-norm_dist = np.clip(norm_dist, 0, 1)
-opacity_array = 1.0 - (min_transparency + (max_transparency - min_transparency) * norm_dist)
-# Map color values to RGBA and set alpha channel
-from matplotlib import cm, colors
-norm = colors.Normalize(vmin=PArray_nonlinear_color.min(), vmax=PArray_nonlinear_color.max())
-cmap = cm.get_cmap('twilight')
-# Create scatter with colormap and norm for colorbar
-sc2 = axs[0, 1].scatter(WArray_nonlinear_topright, EArray_nonlinear_topright, c=PArray_nonlinear_color, cmap=cmap, norm=norm)
-# Set per-point alpha after creation
-rgba_colors = sc2.get_facecolors()
-if len(rgba_colors) == len(opacity_array):
-    rgba_colors[:, 3] = opacity_array
-    sc2.set_facecolor(rgba_colors)
-cb2 = fig.colorbar(sc2, ax=axs[0, 1])
-cb2.set_label('Pack Power (kW), nonlinear color scale (original range: ~40-180)')
-# Set colorbar ticks to show original kW values
-import matplotlib.ticker as mticker
-color_ticks = [40, 80, 120, 180]
-cb2.set_ticks(nonlinear_axis_transform(np.array(color_ticks), center=80, scale=2))
-cb2.set_ticklabels([str(v) for v in color_ticks])
-axs[0, 1].set_xlabel('Total Pack Weight (kg) [nonlinear scale]')
-axs[0, 1].set_ylabel('Pack Energy (kWh) [nonlinear scale]')
-axs[0, 1].set_title('Pack Energy vs Pack Weight (Color: Power, Nonlinear X & Y & Color)')
-# Draw gridlines at constant intervals in the original space, then scale them to demonstrate the nonlinear nature
-weight_grid_linear = np.linspace(WArray.min(), WArray.max(), num=8)
-energy_grid_linear = np.linspace(EArray.min(), EArray.max(), num=8)
-for x in weight_grid_linear:
-    axs[0, 1].axvline(nonlinear_axis_transform(x, center=30, scale=2), color='lightgray', linestyle='--', linewidth=0.5, zorder=0)
-for y in energy_grid_linear:
-    axs[0, 1].axhline(nonlinear_axis_transform(y, center=5, scale=2), color='lightgray', linestyle='--', linewidth=0.5, zorder=0)
-axs[0, 1].grid(False)
-# Set custom ticks for nonlinear axes
-weight_ticks = [WArray.min(), 30, WArray.max()]
-energy_ticks = [EArray.min(), 5, EArray.max()]
-axs[0, 1].set_xticks(nonlinear_axis_transform(np.array(weight_ticks), center=30, scale=2))
-axs[0, 1].set_xticklabels([f'{wt:.1f}' for wt in weight_ticks])
-axs[0, 1].set_yticks(nonlinear_axis_transform(np.array(energy_ticks), center=5, scale=2))
-axs[0, 1].set_yticklabels([f'{et:.1f}' for et in energy_ticks])
+def FilterConfigs(configs, minPWR=60, maxPWR=np.inf, minEnerg=3, maxEnerg=np.inf, min_weight=0, max_weight=50):
+    filtered = []
+    required_columns = ["Pack Power (kW)", "Pack Energy (kWh)", "Total Pack Weight (kg)"]
+    for col in required_columns:
+        if col not in configs.columns:
+            raise ValueError(f"Missing required column: {col}")
+    # Running statistics
+    stats = {
+        "weight": {"min": None, "max": None, "sum": 0.0, "count": 0},
+        "energy": {"min": None, "max": None, "sum": 0.0, "count": 0},
+        "power": {"min": None, "max": None, "sum": 0.0, "count": 0}
+    }
+    for _, config in tqdm(configs.iterrows(), total=len(configs), desc="Filtering configs"):
+        if (
+            config["Pack Power (kW)"] >= minPWR and
+            config["Pack Power (kW)"] <= maxPWR and
+            config["Pack Energy (kWh)"] >= minEnerg and
+            config["Pack Energy (kWh)"] <= maxEnerg and
+            config["Total Pack Weight (kg)"] >= min_weight and
+            config["Total Pack Weight (kg)"] <= max_weight
+        ):
+            filtered.append(config)
+            for key, col in zip(["weight", "energy", "power"], ["Total Pack Weight (kg)", "Pack Energy (kWh)", "Pack Power (kW)"]):
+                val = float(config[col])
+                if stats[key]["min"] is None or val < stats[key]["min"]:
+                    stats[key]["min"] = val
+                if stats[key]["max"] is None or val > stats[key]["max"]:
+                    stats[key]["max"] = val
+                stats[key]["sum"] += val
+                stats[key]["count"] += 1
+    summary = {
+        key: {
+            "min": stats[key]["min"],
+            "max": stats[key]["max"],
+            "mean": stats[key]["sum"] / stats[key]["count"] if stats[key]["count"] > 0 else None
+        }
+        for key in stats
+    }
+    return filtered, summary
 
-# Bottom left: Power vs Energy, color by Weight
-sc3 = axs[1, 0].scatter(EArray, PArray, c=WArray, cmap='cividis', alpha=0.6, norm=LogNorm(vmin=max(WArray.min(), 1e-6), vmax=WArray.max()))
-fig.colorbar(sc3, ax=axs[1, 0], label='Total Pack Weight (kg)', norm=LogNorm(vmin=max(WArray.min(), 1e-6), vmax=WArray.max()))
-axs[1, 0].set_xlabel('Pack Energy (kWh)')
-axs[1, 0].set_ylabel('Pack Power (kW)')
-axs[1, 0].set_title('Pack Power vs Pack Weight (Color: Pack Energy, Nonlinear Axes)')
-axs[1, 0].grid(True)
+def optimization_worker(args):
+    return DoCellOptimization(*args)
 
-
-# Bottom right: Cell name (as number) vs Pack Energy, color by Pack Power
-sc4 = axs[1, 1].scatter(EArray, PArray, c=cell_indices, cmap='viridis', alpha=0.6)
-fig.colorbar(sc4, ax=axs[1, 1], label='Cell Index')
-axs[1, 1].set_xlabel('Pack Energy (kWh)')
-axs[1, 1].set_ylabel('Pack Power (kW)')
-axs[1, 1].set_title('Power vs Energy (Color: Cell Index)')
-axs[1, 1].grid(False)
-
-# Standalone plot: Power vs Energy, color by Cell Index (smoother color scale)
-
-# Duplicate the full 2x2 multiplot with linear scales and simple colorbars
-fig2, axs2 = plt.subplots(2, 2, figsize=(14, 12))
-# Top left: Power vs Energy, color by Weight (linear)
-sc1_lin = axs2[0, 0].scatter(EArray, PArray, c=WArray, cmap='viridis', alpha=0.6)
-fig2.colorbar(sc1_lin, ax=axs2[0, 0], label='Total Pack Weight (kg)')
-axs2[0, 0].set_xlabel('Pack Energy (kWh)')
-axs2[0, 0].set_ylabel('Pack Power (kW)')
-axs2[0, 0].set_title('Pack Power vs Pack Energy (Color: Pack Weight, Linear Axes)')
-axs2[0, 0].grid(True)
-# Top right: Energy vs Weight, color by Power (linear)
-sc2_lin = axs2[0, 1].scatter(WArray, EArray, c=PArray, cmap='twilight', alpha=0.6)
-fig2.colorbar(sc2_lin, ax=axs2[0, 1], label='Pack Power (kW)')
-axs2[0, 1].set_xlabel('Total Pack Weight (kg)')
-axs2[0, 1].set_ylabel('Pack Energy (kWh)')
-axs2[0, 1].set_title('Pack Energy vs Pack Weight (Color: Power, Linear Axes)')
-axs2[0, 1].grid(True)
-# Bottom left: Power vs Energy, color by Weight (linear)
-sc3_lin = axs2[1, 0].scatter(EArray, PArray, c=WArray, cmap='cividis', alpha=0.6)
-fig2.colorbar(sc3_lin, ax=axs2[1, 0], label='Total Pack Weight (kg)')
-axs2[1, 0].set_xlabel('Pack Energy (kWh)')
-axs2[1, 0].set_ylabel('Pack Power (kW)')
-axs2[1, 0].set_title('Pack Power vs Pack Weight (Color: Pack Energy, Linear Axes)')
-axs2[1, 0].grid(True)
-# Bottom right: Cell name (as number) vs Pack Energy, color by Pack Power (linear)
-sc4_lin = axs2[1, 1].scatter(EArray, PArray, c=cell_indices, cmap='viridis', alpha=0.6)
-fig2.colorbar(sc4_lin, ax=axs2[1, 1], label='Cell Index')
-axs2[1, 1].set_xlabel('Pack Energy (kWh)')
-axs2[1, 1].set_ylabel('Pack Power (kW)')
-axs2[1, 1].set_title('Power vs Energy (Color: Cell Index, Linear Axes)')
-axs2[1, 1].grid(True)
-
-plt.tight_layout()
-plt.show()
-
-
+if __name__ == "__main__":
+    Density = 5
+    if os.path.exists(f"results{str(Density)}.pkl"):
+        print(f"Found existing results{str(Density)}.pkl, loading...")
+        resultsDict = pickle.load(open(f"results{str(Density)}.pkl", "rb"))
+        resultsCylDict, resultsAllDict = resultsDict[0], resultsDict[1]
+        print(len(resultsCylDict), len(resultsAllDict))
+        allConfigs = pd.read_csv("ConfigsAll.csv")
+        CylConfigs = pd.read_csv("ConfigsCyl.csv")
+    else:
+        resultsCylDict = {}
+        resultsAllDict = {}
+        Processes = mp.cpu_count() - 1
+        print("Importing All Configs")
+        allConfigs, allSummary = FilterConfigs(pd.read_csv("ConfigsAll.csv"))
+        print(f"Survived filtration: {len(allConfigs)} configs.")
+        if len(allConfigs) > 0:
+            print(f"Weight: min={allSummary['weight']['min']:.2f}, max={allSummary['weight']['max']:.2f}, mean={allSummary['weight']['mean']:.2f}")
+            print(f"Energy: min={allSummary['energy']['min']:.2f}, max={allSummary['energy']['max']:.2f}, mean={allSummary['energy']['mean']:.2f}")
+            print(f"Power: min={allSummary['power']['min']:.2f}, max={allSummary['power']['max']:.2f}, mean={allSummary['power']['mean']:.2f}")
+        print("Importing Cylindrical Configs")
+        CylConfigs, cylSummary = FilterConfigs(pd.read_csv("ConfigsCyl.csv"))
+        print(f"Survived filtration: {len(CylConfigs)} cylindrical configs.")
+        if len(CylConfigs) > 0:
+            print(f"Weight: min={cylSummary['weight']['min']:.2f}, max={cylSummary['weight']['max']:.2f}, mean={cylSummary['weight']['mean']:.2f}")
+            print(f"Energy: min={cylSummary['energy']['min']:.2f}, max={cylSummary['energy']['max']:.2f}, mean={cylSummary['energy']['mean']:.2f}")
+            print(f"Power: min={cylSummary['power']['min']:.2f}, max={cylSummary['power']['max']:.2f}, mean={cylSummary['power']['mean']:.2f}")
+        print("Generating Args")
+        argsAll = MakeArgs(allConfigs, OptPwrCnt=Density, OptEnergCnt=Density)
+        print("Generating Args Cyl")
+        argsCyl = MakeArgs(CylConfigs, OptPwrCnt=Density, OptEnergCnt=Density)
+        pool = mp.Pool(processes=Processes)
+        print("Starting Cylindrical")
+        resultsCyl = list(tqdm(pool.imap(optimization_worker, argsCyl), total=len(argsCyl)))
+        print("Cylindrical Done\nStarting All")
+        resultsAll = list(tqdm(pool.imap(optimization_worker, argsAll), total=len(argsAll)))
+        print("All Done")
+        pool.close()
+        pool.join()
+        for i in resultsCyl:
+            resultsCylDict[(i[0], i[1])] = i[2]
+        for j in resultsAll:
+            resultsAllDict[(j[0], j[1])] = j[2]
+        results = [resultsCylDict, resultsAllDict]
+        pickle.dump(results, open(f"results{str(Density)}.pkl", "wb"))
+    print("Done")
+    plot_optimization_scatter_coords(resultsCylDict, show_plot=True, UDT=f"{datetime.datetime.now().strftime('%d_%H_%M_%S')}, Cylindrical, {Density}")
+    plot_optimization_scatter_coords(resultsAllDict, show_plot=True, UDT=f"{datetime.datetime.now().strftime('%d_%H_%M_%S')}, All, {Density}")
+    plot_comprehensive_analysis(resultsCylDict, resultsAllDict, show_plot=True, UDT=f"_{datetime.datetime.now().strftime('%d_%H_%M_%S')}_Density{Density}")

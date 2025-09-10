@@ -1,29 +1,17 @@
-,Energy
-Alberta_ENDUR_Repaired,-1.0
-Auburn_ENDUR_Repaired,-2837.0
-CMU_ENDUR_Repaired,4895.0
-Cal Poly_ENDUR_Repaired,3338.0
-Cincinnati_ENDUR_Repaired,-6616.0
-Cornell_ENDUR_Repaired,7213.0
-Georgia Tech_ENDUR_Repaired,-6665.0
-Laval_ENDUR_Repaired,5897.0
-MIT_ENDUR_Repaired,-3706.0
-Maryland_ENDUR_Repaired,-241.0 
-Michigan_ENDUR_Repaired,-513.0
-Missouri S&T_ENDUR_Repaired,-2857.0
-NUS_ENDUR_Repaired,5560.0
-Northwestern_ENDUR_Repaired,-244.0
-Oregon State_ENDUR_Repaired,-8043.0
-Penn State_ENDUR_Repaired,-1200.0
-Pittsburgh_ENDUR_Repaired,-6548.0
-Polytechnique Montreal_ENDUR_Repaired,-9727.0
-Purdue_ENDUR_Repaired,6432.0
-RIT_ENDUR_Repaired,-5965.0
-San Jose State_ENDUR_Repaired,17269.0
-Toronto_ENDUR_Repaired,-8636.0
-U Conn._ENDUR_Repaired,4873.0
-U of Florida_ENDUR_Repaired,5681.0
-UC Berkeley_ENDUR_Repaired,279.0
-UC Santa Cruz_ENDUR_Repaired,-5540.0
-Washington_ENDUR_Repaired,-6955.0
-Waterloo_ENDUR_Repaired,-1647.0
+Team,EnergyUsage_kWh,PeakPower_kW,Time (s)
+San Jose State,17269,61085.57811,1361.936
+Polytechnique Montreal,9727,11911.63221,1412.701
+Oregon State,8043,14133.24516,1412.871
+Pittsburgh,6548,29982.42852,1513.222
+Georgia Tech,6665,37456.37772,1515.023
+Washington,6955,13983.25239,1582.746
+RIT,5965,18204.13073,1584.04
+U Conn.,4873,1147.888032,1614.61
+Purdue,6432,32777.63233,1616.58
+NUS,5560,50876.88367,1637.331
+Cincinnati,6616,22860.67633,1652.467
+UC Santa Cruz,5540,51932.43544,1695.752
+MIT,3706,44.07211618,1831.242
+Auburn,2837,14673.468,1891.295
+Laval,5897,3336.533988,2030.83
+Missouri S&T,2857,413.95521,2153.627
