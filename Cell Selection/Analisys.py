@@ -15,7 +15,9 @@ try:
 except ImportError as e:
     print(f"Error importing module: {e}. Please ensure all required packages are installed.")
     print("You can run \n'python -m pip install tqdm pandas numpy matplotlib'\n in command prompt to install missing packages.")
-    raise
+    if input("Do you want to do this right now? (y/n):") == "y":
+        os.system("python -m pip install tqdm pandas numpy matplotlib")
+    exit(1)
 
 Locations = {
     "Cell": 0,
@@ -107,8 +109,8 @@ def FilterConfigs(configs, MinVolt=0, MaxVolt=510, minPWR=60, maxPWR=np.inf, min
             config["Pack Energy (kWh)"] <= maxEnerg and
             config["Total Pack Weight (kg)"] >= min_weight and
             config["Total Pack Weight (kg)"] <= max_weight and
-            config["Voltage (V)"] >= MinVolt and
-            config["Voltage (V)"] <= MaxVolt
+            config["Pack Voltage (V)"] >= MinVolt and
+            config["Pack Voltage (V)"] <= MaxVolt
         ):
             filtered.append(config)
             for key, col in zip(["weight", "energy", "power"], ["Total Pack Weight (kg)", "Pack Energy (kWh)", "Pack Power (kW)"]):
